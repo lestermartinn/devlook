@@ -1,4 +1,6 @@
 # devlook/agent/main.py
+import requests
+from datetime import datetime, timezone
 import sys
 import time
 import json
@@ -88,8 +90,23 @@ def main() -> None:
     try:
         while True:
             info = get_active_window_info()
-            print(json.dumps(info, ensure_ascii=False))
+            # print(json.dumps(info, ensure_ascii=False))
+            # time.sleep(5)
+            payload = {
+                "app_name": info.get("app_name"),
+                "window_title": info.get("window_title"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "project": None,
+                "user_id": None,
+            }
+            try:
+                r = requests.post("http://127.0.0.1:8000/api/log", json=payload, timeout=3)
+                print({"sent": r.status_code, "title": payload["window_title"]})
+            except Exception as e:
+                print({"error": str(e)})
+
             time.sleep(5)
+            
     except KeyboardInterrupt:
         print("\nDevLook agent stopped.")
 
