@@ -78,11 +78,34 @@ export default function DashboardPage() {
     const [error, setError] = useState<string | null>(null);
 
     // Fetch from our Next.js proxy
+    // useEffect(() => {
+    //     let alive = true;
+    //     (async () => {
+    //         try {
+    //             const res = await fetch("/api/logs", { cache: "no-store" });
+    //             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    //             const data: ActivityRow[] = await res.json();
+    //             if (alive) setRows(data);
+    //         } catch (e: any) {
+    //             if (alive) setError(e?.message ?? "Failed to fetch logs");
+    //         }
+    //     })();
+    //     return () => {
+    //         alive = false;
+    //     };
+    // }, []);
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
-                const res = await fetch("/api/logs", { cache: "no-store" });
+                const now = new Date();
+                const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+                const url = new URL("/api/logs", window.location.origin);
+                url.searchParams.set("since", since);
+                url.searchParams.set("limit", "1000");
+
+                const res = await fetch(url.toString(), { cache: "no-store" });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data: ActivityRow[] = await res.json();
                 if (alive) setRows(data);
@@ -94,6 +117,7 @@ export default function DashboardPage() {
             alive = false;
         };
     }, []);
+
 
     // Aggregate basic “time” proxy:
     // Each row ~5 seconds (your agent posts every 5s).

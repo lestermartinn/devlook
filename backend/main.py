@@ -34,7 +34,7 @@
 #     return {"status": "ok"}
 
 # devlook/backend/main.py
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Query
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -71,6 +71,16 @@ def on_startup():
 def read_root():
     return {"message": "API is running"}
 
+# helper to parse ISO strings like "...Z" or with offsets
+def _parse_iso_to_naive(dt: str) -> datetime:
+    # Accept “Z” by converting to +00:00
+    dt = dt.replace("Z", "+00:00")
+    d = datetime.fromisoformat(dt)
+    # Our DB column is naive (no tz), store/compare as UTC-naive
+    if d.tzinfo:
+        d = d.astimezone(tz=None).replace(tzinfo=None)
+    return d
+
 @app.post("/api/log")
 def ingest_log(payload: ActivityLogIn, db: Session = Depends(get_db)):
     row = ActivityLog(
@@ -87,13 +97,28 @@ def ingest_log(payload: ActivityLogIn, db: Session = Depends(get_db)):
     return {"status": "ok", "id": row.id}
 
 @app.get("/api/logs")
-def get_logs(limit: int = 50, db: Session = Depends(get_db)) -> List[dict]:
-    stmt = (
-        select(ActivityLog)
-        .order_by(desc(ActivityLog.timestamp))
-        .limit(limit)
-    )
+def get_logs(
+    limit: int = Query(50, ge=1, le=5000),
+    since: Optional[str] = Query(None, description="ISO datetime, e.g. 2025-08-14T00:00:00Z"),
+    until: Optional[str] = Query(None, description="ISO datetime, e.g. 2025-08-15T00:00:00Z"),
+    project: Optional[str] = Query(None, description="Exact project tag (optional)"),
+    db: Session = Depends(get_db),
+) -> List[dict]:
+    stmt = select(ActivityLog)
+
+    # Apply optional filters
+    if since:
+        since_dt = _parse_iso_to_naive(since)
+        stmt = stmt.where(ActivityLog.timestamp >= since_dt)
+    if until:
+        until_dt = _parse_iso_to_naive(until)
+        stmt = stmt.where(ActivityLog.timestamp < until_dt)
+    if project:
+        stmt = stmt.where(ActivityLog.project == project)
+
+    stmt = stmt.order_by(desc(ActivityLog.timestamp)).limit(limit)
     rows = db.execute(stmt).scalars().all()
+
     return [
         {
             "id": r.id,
@@ -105,3 +130,4 @@ def get_logs(limit: int = 50, db: Session = Depends(get_db)) -> List[dict]:
         }
         for r in rows
     ]
+
