@@ -53,7 +53,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
     ResponsiveContainer,
     BarChart,
@@ -73,55 +73,53 @@ type ActivityRow = {
     user_id: string | null;
 };
 
+type RangeKey = "today" | "7d" | "30d";
+
+function rangeToSinceISO(range: RangeKey): string {
+    const now = new Date();
+    let ms = 24 * 60 * 60 * 1000; // default today (24h)
+    if (range === "7d") ms = 7 * 24 * 60 * 60 * 1000;
+    if (range === "30d") ms = 30 * 24 * 60 * 60 * 1000;
+    return new Date(now.getTime() - ms).toISOString();
+}
+
 export default function DashboardPage() {
     const [rows, setRows] = useState<ActivityRow[] | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [range, setRange] = useState<RangeKey>("today");
+    const [loading, setLoading] = useState(false);
 
-    // Fetch from our Next.js proxy
-    // useEffect(() => {
-    //     let alive = true;
-    //     (async () => {
-    //         try {
-    //             const res = await fetch("/api/logs", { cache: "no-store" });
-    //             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    //             const data: ActivityRow[] = await res.json();
-    //             if (alive) setRows(data);
-    //         } catch (e: any) {
-    //             if (alive) setError(e?.message ?? "Failed to fetch logs");
-    //         }
-    //     })();
-    //     return () => {
-    //         alive = false;
-    //     };
-    // }, []);
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            try {
-                const now = new Date();
-                const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-
-                const url = new URL("/api/logs", window.location.origin);
-                url.searchParams.set("since", since);
-                url.searchParams.set("limit", "1000");
-
-                const res = await fetch(url.toString(), { cache: "no-store" });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data: ActivityRow[] = await res.json();
-                if (alive) setRows(data);
-            } catch (e: any) {
-                if (alive) setError(e?.message ?? "Failed to fetch logs");
-            }
-        })();
-        return () => {
-            alive = false;
-        };
+    const fetchLogs = useCallback(async (r: RangeKey) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const since = rangeToSinceISO(r);
+            const url = new URL("/api/logs", window.location.origin);
+            url.searchParams.set("since", since);
+            url.searchParams.set("limit", "5000");
+            const res = await fetch(url.toString(), { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data: ActivityRow[] = await res.json();
+            setRows(data);
+        } catch (e: any) {
+            setError(e?.message ?? "Failed to fetch logs");
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
+    // initial load
+    useEffect(() => {
+        fetchLogs(range);
+    }, [fetchLogs, range]);
 
-    // Aggregate basic “time” proxy:
-    // Each row ~5 seconds (your agent posts every 5s).
-    // minutes = count * 5 / 60.
+    // auto-refresh every 30s
+    useEffect(() => {
+        const id = setInterval(() => fetchLogs(range), 30_000);
+        return () => clearInterval(id);
+    }, [fetchLogs, range]);
+
+    // Aggregate: events -> approx minutes (event ≈ 5s)
     const chartData = useMemo(() => {
         if (!rows) return [];
         const counts = new Map<string, number>();
@@ -132,12 +130,18 @@ export default function DashboardPage() {
         return Array.from(counts.entries())
             .map(([app, count]) => ({
                 app,
-                minutes: Math.round((count * 5) / 6) / 10, // one decimal minute
+                minutes: Math.round((count * 5) / 6) / 10, // one decimal
                 events: count,
             }))
             .sort((a, b) => b.minutes - a.minutes)
             .slice(0, 12);
     }, [rows]);
+
+    const totalMinutes = useMemo(
+        () => chartData.reduce((sum, d) => sum + d.minutes, 0),
+        [chartData]
+    );
+    const topApp = chartData[0]?.app ?? "—";
 
     return (
         <main className="min-h-screen p-6 md:p-10">
@@ -148,6 +152,32 @@ export default function DashboardPage() {
                         Live data from your agent (approx. minutes per app)
                     </p>
                 </header>
+
+                {/* Controls */}
+                <div className="flex items-center gap-2">
+                    {(["today", "7d", "30d"] as RangeKey[]).map((k) => (
+                        <button
+                            key={k}
+                            onClick={() => setRange(k)}
+                            className={`px-3 py-1.5 rounded-lg border text-sm ${range === k
+                                    ? "bg-gray-900 text-white border-gray-900"
+                                    : "bg-white/5 border-gray-300 hover:bg-white/10"
+                                }`}
+                        >
+                            {k.toUpperCase()}
+                        </button>
+                    ))}
+                    <span className="ml-auto text-xs text-gray-500">
+                        {loading ? "Refreshing…" : "Auto-refresh every 30s"}
+                    </span>
+                </div>
+
+                {/* Summary */}
+                <div className="rounded-xl border p-4 text-sm flex gap-6">
+                    <div><span className="text-gray-500">Total focus:</span> {totalMinutes.toFixed(1)} min</div>
+                    <div><span className="text-gray-500">Top app:</span> {topApp}</div>
+                    <div><span className="text-gray-500">Events:</span> {rows?.length ?? 0}</div>
+                </div>
 
                 {error && (
                     <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -175,7 +205,7 @@ export default function DashboardPage() {
                             </ResponsiveContainer>
                         </div>
                         <p className="mt-2 text-xs text-gray-500">
-                            Estimate assumes one event ≈ 5 seconds. We’ll refine with true sessionization later.
+                            Estimate assumes one event ≈ 5 seconds. We’ll refine with sessionization later.
                         </p>
                     </section>
                 )}
