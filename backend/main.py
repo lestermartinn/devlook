@@ -1,38 +1,3 @@
-# # devlook/backend/main.py
-# from fastapi import FastAPI
-
-# app = FastAPI()
-
-# @app.get("/")
-# def read_root():
-#     return {"message": "API is running"}
-
-# devlook/backend/main.py
-# from fastapi import FastAPI
-# from pydantic import BaseModel, Field
-# from typing import Optional
-# from datetime import datetime
-
-# app = FastAPI()
-
-# class ActivityLogIn(BaseModel):
-#     app_name: Optional[str] = Field(None, description="Process/app name, e.g., Code.exe")
-#     window_title: Optional[str] = Field(None, description="Current window title")
-#     timestamp: datetime = Field(default_factory=datetime.utcnow, description="UTC timestamp")
-#     # room to grow later:
-#     project: Optional[str] = None
-#     user_id: Optional[str] = None
-
-# @app.get("/")
-# def read_root():
-#     return {"message": "API is running"}
-
-# @app.post("/api/log")
-# def ingest_log(payload: ActivityLogIn):
-#     # For now, just echo to console and return status
-#     print(f"[INGEST] {payload.timestamp.isoformat()} | app={payload.app_name} | title={payload.window_title}")
-#     return {"status": "ok"}
-
 # devlook/backend/main.py
 from fastapi import FastAPI, Depends, Query
 from pydantic import BaseModel, Field
